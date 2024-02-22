@@ -6,3 +6,7 @@
 - run `pip install -r requirements.txt`
 - launch the script with `python script.py`
 - close your virtual environment with `deactivate`
+
+
+### Customizations:
+- passing different key names while invoking the program will change the `start` and `end` keys. e.g. `python script.py space enter` will change the start recording key to `space` and the end recording key to `enter`

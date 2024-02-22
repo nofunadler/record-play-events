@@ -1,4 +1,3 @@
-from ast import arg
 import sys
 from threading import Lock
 from time import sleep

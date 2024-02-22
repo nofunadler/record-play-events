@@ -1,3 +1,4 @@
+from ast import arg
 import sys
 from threading import Lock
 from time import sleep
@@ -6,29 +7,56 @@ import colorama
 
 class State:
   def __init__(self) -> None:
-    self.terminate = False
-    self.begin = False
-    self.terminate_lock = Lock()
-    self.begin_lock = Lock()
+    self._terminate = False
+    self._begin = False
+    self._terminate_lock = Lock()
+    self._begin_lock = Lock()
     
   def stop(self) -> None:
-    with self.terminate_lock:
-      self.terminate = True
+    with self._terminate_lock:
+      self._terminate = True
     
   def start(self) -> None:
-    with self.begin_lock:
-      self.begin = True
+    with self._begin_lock:
+      self._begin = True
+      
+  def should_start(self) -> bool:
+    should_begin = False
+    with self._begin_lock:
+      should_begin = self._begin
+    
+    return should_begin
+  
+  
+  def should_stop(self) -> bool:
+    should_terminate = False
+    with self._terminate_lock:
+      should_terminate = self._terminate
+      
+    return should_terminate
+  
 
+def play(state: State, events: list[keyboard.KeyboardEvent], speed_factor: float = 1.0, /) -> None:
+    """
+    slightly modified play function to enable breaking the play of events mid sequence
+    """
+    keyboard_state = keyboard.stash_state()
 
-def cleanup(*args) -> None:
-  (state,) = args
-  state.stop()
-  
-  
-def begin(*args) -> None:
-  (state,) = args
-  state.start()
-  
+    last_time = None
+    for event in events:
+        if speed_factor > 0 and last_time is not None:
+            sleep((event.time - last_time) / speed_factor)
+        last_time = event.time
+
+        key = event.scan_code or event.name
+        
+        if state.should_stop():
+          break
+        
+        keyboard.press(key) if event.event_type == keyboard.KEY_DOWN else keyboard.release(key)
+
+    keyboard.restore_modifiers(keyboard_state)
+    
 
 def get_key_events(state: State, key_mapping: tuple[str], hook_begin_handler, /) -> list[keyboard.KeyboardEvent]:
   (start, end) = key_mapping
@@ -38,8 +66,8 @@ def get_key_events(state: State, key_mapping: tuple[str], hook_begin_handler, /)
       f"{colorama.Fore.RED}ESC{colorama.Fore.GREEN} to quit{colorama.Style.RESET_ALL}\n"
     )
   
-  while not state.begin:
-    if state.terminate:
+  while not state.should_start():
+    if state.should_stop():
       return []
     
   keyboard.remove_hotkey(hook_begin_handler)
@@ -61,27 +89,27 @@ def play_events(start: str='page up', end: str='page down') -> None:
   
   state: State = State()
   
-  hook_begin = keyboard.add_hotkey(start, begin, args=(state,), suppress=True)
-  keyboard.add_hotkey('escape', cleanup, args=(state,), suppress=True)
+  hook_begin = keyboard.add_hotkey(start, lambda: state.start(), suppress=True)
+  keyboard.add_hotkey('escape', lambda: state.stop(), suppress=True)
   
   try:
     keyboard_events = get_key_events(state, (start, end), hook_begin)
-    
     if not keyboard_events:
       return
     
     # main event loop
-    while not state.terminate:
-      keyboard.play(keyboard_events)
+    while not state.should_stop():
+      play(state, keyboard_events)
   except KeyboardInterrupt:
-    pass
+    return
     
     
 def main(argv: list[str]) -> None:
   colorama.just_fix_windows_console()
   
-  if 'ctrl+c' in argv:
-    print(f"{colorama.Fore.RED}the use of the ctrl+c combination is reserved for emergency exit{colorama.Style.RESET_ALL}\n")
+  reserved_combo = {'ctrl+c', 'ctrl+z', 'esc'} & {arg.strip().lower() for arg in argv}
+  if reserved_combo:
+    print(f"{colorama.Fore.RED}the use of the {reserved_combo} combination is reserved for emergency exit{colorama.Style.RESET_ALL}\n")
     return
   
   if len(argv) == 3:
